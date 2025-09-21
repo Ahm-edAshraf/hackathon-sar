@@ -6,7 +6,17 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { AlertTriangle, ArrowBigUpDash, BellRing, Megaphone, Loader2, Play } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowBigUpDash,
+  BellRing,
+  Megaphone,
+  Loader2,
+  Play,
+  MapPin,
+  CheckCircle2,
+  XCircle,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,9 +49,25 @@ export interface RoutePlanPayload {
   summary: AltRouteResponse;
 }
 
+export interface CoordinateSelectionRequest {
+  id: string;
+  label: string;
+  onSelect: (coords: { lat: number; lon: number }) => void;
+}
+
+interface ActivityLogEntry {
+  id: string;
+  label: string;
+  status: 'success' | 'error';
+  detail?: string;
+  timestamp: number;
+}
+
 interface OperationsPanelProps {
   onEventCreated?: (eventId: string) => void;
   onRoutePlanned?: (payload: RoutePlanPayload) => void;
+  onCoordinateSelectionRequest?: (request: CoordinateSelectionRequest | null) => void;
+  activeCoordinateSelection?: string | null;
 }
 
 const coordinateSchema = (min: number, max: number, label: string) =>
@@ -104,11 +130,28 @@ const geofenceSchema = z.object({
 
 type GeofenceSchema = z.infer<typeof geofenceSchema>;
 
-export function OperationsPanel({ onEventCreated, onRoutePlanned }: OperationsPanelProps) {
+export function OperationsPanel({
+  onEventCreated,
+  onRoutePlanned,
+  onCoordinateSelectionRequest,
+  activeCoordinateSelection,
+}: OperationsPanelProps) {
   const queryClient = useQueryClient();
   const [routeSummary, setRouteSummary] = useState<AltRouteResponse | null>(null);
   const [geofenceSummary, setGeofenceSummary] = useState<GeofenceResponse | null>(null);
   const [lastSimulation, setLastSimulation] = useState<SimulateReplayResponse | null>(null);
+  const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
+
+  const pushActivity = (entry: Omit<ActivityLogEntry, 'id' | 'timestamp'>) => {
+    setActivityLog((previous) => {
+      const record: ActivityLogEntry = {
+        ...entry,
+        id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: Date.now(),
+      };
+      return [record, ...previous].slice(0, 8);
+    });
+  };
 
   const ingestForm = useForm<IngestSchema>({
     resolver: zodResolver(ingestSchema) as Resolver<IngestSchema>,
@@ -148,10 +191,20 @@ export function OperationsPanel({ onEventCreated, onRoutePlanned }: OperationsPa
       queryClient.invalidateQueries({ queryKey: queryKeys.events });
       onEventCreated?.(data.eventId);
       ingestForm.reset({ ...variables, text: '', mediaUrl: undefined });
+      pushActivity({
+        label: `Report dispatched (${data.eventId.slice(0, 6)})`,
+        status: 'success',
+        detail: 'Awaiting Nova Lite classification',
+      });
     },
     onError: (error: unknown) => {
       toast.error('Could not ingest event', {
         description: extractErrorMessage(error),
+      });
+      pushActivity({
+        label: 'Report dispatch failed',
+        status: 'error',
+        detail: extractErrorMessage(error),
       });
     },
   });
@@ -176,10 +229,20 @@ export function OperationsPanel({ onEventCreated, onRoutePlanned }: OperationsPa
           summary: data,
         });
       }
+      pushActivity({
+        label: 'Alternate route generated',
+        status: 'success',
+        detail: `${data.distanceKm.toFixed(1)} km · ${data.etaMin} min`,
+      });
     },
     onError: (error: unknown) => {
       toast.error('Route planner failed', {
         description: extractErrorMessage(error),
+      });
+      pushActivity({
+        label: 'Route planning failed',
+        status: 'error',
+        detail: extractErrorMessage(error),
       });
     },
   });
@@ -191,10 +254,20 @@ export function OperationsPanel({ onEventCreated, onRoutePlanned }: OperationsPa
       toast.success('Alert delivered', {
         description: `${data.delivered} responder${data.delivered === 1 ? '' : 's'} notified in geofence`,
       });
+      pushActivity({
+        label: 'Geofence alert sent',
+        status: 'success',
+        detail: `${data.delivered} recipient${data.delivered === 1 ? '' : 's'} reached`,
+      });
     },
     onError: (error: unknown) => {
       toast.error('Could not set geofence', {
         description: extractErrorMessage(error),
+      });
+      pushActivity({
+        label: 'Geofence alert failed',
+        status: 'error',
+        detail: extractErrorMessage(error),
       });
     },
   });
@@ -207,10 +280,20 @@ export function OperationsPanel({ onEventCreated, onRoutePlanned }: OperationsPa
         description: `${data.count} demo events streaming in`,
       });
       queryClient.invalidateQueries({ queryKey: queryKeys.events });
+      pushActivity({
+        label: 'Demo replay launched',
+        status: 'success',
+        detail: `${data.count} events`,
+      });
     },
     onError: (error: unknown) => {
       toast.error('Simulation failed', {
         description: extractErrorMessage(error),
+      });
+      pushActivity({
+        label: 'Replay launch failed',
+        status: 'error',
+        detail: extractErrorMessage(error),
       });
     },
   });
@@ -222,15 +305,30 @@ export function OperationsPanel({ onEventCreated, onRoutePlanned }: OperationsPa
         <CardDescription>Submit intel, request diversions, and trigger alerting workflows.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        {activeCoordinateSelection ? (
+          <InlineHint>
+            <MapPin className="h-4 w-4" />
+            <span>Select a point on the mission map for this form.</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              onClick={() => onCoordinateSelectionRequest?.(null)}
+            >
+              Cancel
+            </Button>
+          </InlineHint>
+        ) : null}
         <Tabs defaultValue="report" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="report" className="gap-2 text-xs sm:text-sm">
+          <TabsList className="grid w-full grid-cols-3 rounded-full bg-muted/30 p-1 text-xs">
+            <TabsTrigger value="report" className="gap-1 rounded-full text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm sm:text-sm">
               <Megaphone className="h-4 w-4" /> Report
             </TabsTrigger>
-            <TabsTrigger value="routing" className="gap-2 text-xs sm:text-sm">
+            <TabsTrigger value="routing" className="gap-1 rounded-full text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm sm:text-sm">
               <ArrowBigUpDash className="h-4 w-4" /> Routing
             </TabsTrigger>
-            <TabsTrigger value="alerts" className="gap-2 text-xs sm:text-sm">
+            <TabsTrigger value="alerts" className="gap-1 rounded-full text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm sm:text-sm">
               <BellRing className="h-4 w-4" /> Alerts
             </TabsTrigger>
           </TabsList>
@@ -258,7 +356,7 @@ export function OperationsPanel({ onEventCreated, onRoutePlanned }: OperationsPa
                     </FormItem>
                   )}
                 />
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <FormField
                     control={ingestForm.control}
                     name="lat"
@@ -285,6 +383,32 @@ export function OperationsPanel({ onEventCreated, onRoutePlanned }: OperationsPa
                       </FormItem>
                     )}
                   />
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant={activeCoordinateSelection === 'ingest-location' ? 'default' : 'ghost'}
+                    size="sm"
+                    className="gap-2 rounded-full text-xs"
+                    onClick={() => {
+                      if (activeCoordinateSelection === 'ingest-location') {
+                        onCoordinateSelectionRequest?.(null);
+                        return;
+                      }
+                      onCoordinateSelectionRequest?.({
+                        id: 'ingest-location',
+                        label: 'report location',
+                        onSelect: ({ lat, lon }) => {
+                          ingestForm.setValue('lat', roundCoord(lat), { shouldDirty: true, shouldTouch: true });
+                          ingestForm.setValue('lon', roundCoord(lon), { shouldDirty: true, shouldTouch: true });
+                          toast.success('Report coordinates set from map');
+                        },
+                      });
+                    }}
+                  >
+                    <MapPin className="h-4 w-4" />
+                    {activeCoordinateSelection === 'ingest-location' ? 'Tap map to confirm…' : 'Select on map'}
+                  </Button>
                 </div>
                 <FormField
                   control={ingestForm.control}
@@ -316,7 +440,7 @@ export function OperationsPanel({ onEventCreated, onRoutePlanned }: OperationsPa
                 className="space-y-4"
                 onSubmit={altRouteForm.handleSubmit((values) => altRouteMutation.mutate(values))}
               >
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <FormField
                     control={altRouteForm.control}
                     name="originLat"
@@ -374,10 +498,60 @@ export function OperationsPanel({ onEventCreated, onRoutePlanned }: OperationsPa
                   {altRouteMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Request diversion
                 </Button>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={activeCoordinateSelection === 'route-origin' ? 'default' : 'ghost'}
+                    className="gap-2 rounded-full text-xs"
+                    onClick={() => {
+                      if (activeCoordinateSelection === 'route-origin') {
+                        onCoordinateSelectionRequest?.(null);
+                        return;
+                      }
+                      onCoordinateSelectionRequest?.({
+                        id: 'route-origin',
+                        label: 'route origin',
+                        onSelect: ({ lat, lon }) => {
+                          altRouteForm.setValue('originLat', roundCoord(lat), { shouldDirty: true, shouldTouch: true });
+                          altRouteForm.setValue('originLon', roundCoord(lon), { shouldDirty: true, shouldTouch: true });
+                          toast.success('Origin coordinates set from map');
+                        },
+                      });
+                    }}
+                  >
+                    <MapPin className="h-4 w-4" />
+                    {activeCoordinateSelection === 'route-origin' ? 'Set origin via map…' : 'Pick origin on map'}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={activeCoordinateSelection === 'route-destination' ? 'default' : 'ghost'}
+                    className="gap-2 rounded-full text-xs"
+                    onClick={() => {
+                      if (activeCoordinateSelection === 'route-destination') {
+                        onCoordinateSelectionRequest?.(null);
+                        return;
+                      }
+                      onCoordinateSelectionRequest?.({
+                        id: 'route-destination',
+                        label: 'route destination',
+                        onSelect: ({ lat, lon }) => {
+                          altRouteForm.setValue('destLat', roundCoord(lat), { shouldDirty: true, shouldTouch: true });
+                          altRouteForm.setValue('destLon', roundCoord(lon), { shouldDirty: true, shouldTouch: true });
+                          toast.success('Destination coordinates set from map');
+                        },
+                      });
+                    }}
+                  >
+                    <MapPin className="h-4 w-4" />
+                    {activeCoordinateSelection === 'route-destination' ? 'Set destination via map…' : 'Pick destination on map'}
+                  </Button>
+                </div>
               </form>
             </Form>
             {routeSummary ? (
-              <div className="rounded-2xl border bg-muted/50 p-4 text-sm">
+              <div className="rounded-2xl border border-border/60 bg-card/80 p-4 text-sm">
                 <p className="font-semibold">Route summary</p>
                 <p className="text-muted-foreground">
                   Distance <span className="font-medium text-foreground">{routeSummary.distanceKm.toFixed(2)} km</span> · ETA{' '}
@@ -393,7 +567,7 @@ export function OperationsPanel({ onEventCreated, onRoutePlanned }: OperationsPa
                 className="space-y-4"
                 onSubmit={geofenceForm.handleSubmit((values) => geofenceMutation.mutate(values))}
               >
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <FormField
                     control={geofenceForm.control}
                     name="lat"
@@ -438,6 +612,32 @@ export function OperationsPanel({ onEventCreated, onRoutePlanned }: OperationsPa
                   {geofenceMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Send geofence alert
                 </Button>
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={activeCoordinateSelection === 'geofence-center' ? 'default' : 'ghost'}
+                    className="gap-2 rounded-full text-xs"
+                    onClick={() => {
+                      if (activeCoordinateSelection === 'geofence-center') {
+                        onCoordinateSelectionRequest?.(null);
+                        return;
+                      }
+                      onCoordinateSelectionRequest?.({
+                        id: 'geofence-center',
+                        label: 'geofence center',
+                        onSelect: ({ lat, lon }) => {
+                          geofenceForm.setValue('lat', roundCoord(lat), { shouldDirty: true, shouldTouch: true });
+                          geofenceForm.setValue('lon', roundCoord(lon), { shouldDirty: true, shouldTouch: true });
+                          toast.success('Geofence center set from map');
+                        },
+                      });
+                    }}
+                  >
+                    <MapPin className="h-4 w-4" />
+                    {activeCoordinateSelection === 'geofence-center' ? 'Tap map to confirm…' : 'Select center on map'}
+                  </Button>
+                </div>
               </form>
             </Form>
             {geofenceSummary ? (
@@ -452,31 +652,31 @@ export function OperationsPanel({ onEventCreated, onRoutePlanned }: OperationsPa
           </TabsContent>
         </Tabs>
 
-        <div className="rounded-2xl border bg-muted/40 p-5">
+        <div className="rounded-2xl border border-border/60 bg-card/80 p-4">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold">Demo replay</p>
-              <p className="text-xs text-muted-foreground">
-                Inject the standard demo stream to populate dashboards instantly.
-              </p>
+              <p className="text-xs text-muted-foreground">Seed with sample SAR events.</p>
             </div>
             <Button
               size="sm"
               onClick={() => simulationMutation.mutate()}
               disabled={simulationMutation.isPending}
-              className="gap-2"
+              className="gap-2 rounded-full text-xs"
             >
               {simulationMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              Launch replay
+              Launch
             </Button>
           </div>
           {lastSimulation ? (
             <p className="mt-3 text-xs text-muted-foreground">
               {lastSimulation.count} events streaming ·{' '}
-              <span className="font-medium text-foreground">started: {new Date().toLocaleTimeString()}</span>
+              <span className="font-medium text-foreground">started {new Date().toLocaleTimeString()}</span>
             </p>
           ) : null}
         </div>
+
+        <ActivityTimeline entries={activityLog} />
       </CardContent>
     </Card>
   );
@@ -514,8 +714,46 @@ function extractErrorMessage(error: unknown) {
 
 function InlineHint({ children }: { children: React.ReactNode }) {
   return (
-    <div className={cn('flex items-center gap-2 rounded-xl border border-dashed border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary')}>
+    <div className={cn('flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-[11px] text-primary')}>
       {children}
+    </div>
+  );
+}
+
+function roundCoord(value: number) {
+  return Number(value.toFixed(3));
+}
+
+function ActivityTimeline({ entries }: { entries: ActivityLogEntry[] }) {
+  if (entries.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-border/60 bg-card/70 p-4 text-xs text-muted-foreground">
+        Recent automation activity will appear here as you trigger tools.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-border/60 bg-card/80 p-4">
+      <p className="text-sm font-semibold text-foreground">Recent automations</p>
+      <ul className="mt-3 space-y-2 text-xs">
+        {entries.map((entry) => (
+          <li key={entry.id} className="flex items-center gap-3 rounded-xl bg-card px-3 py-2 shadow-sm">
+            {entry.status === 'success' ? (
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            ) : (
+              <XCircle className="h-4 w-4 text-destructive" />
+            )}
+            <div className="flex-1">
+              <p className="font-medium text-foreground">{entry.label}</p>
+              {entry.detail ? <p className="text-muted-foreground">{entry.detail}</p> : null}
+            </div>
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              {new Date(entry.timestamp).toLocaleTimeString()}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

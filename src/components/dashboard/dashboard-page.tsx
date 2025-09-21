@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, Flame, MapPinned, ShieldCheck } from 'lucide-react';
 
@@ -10,10 +10,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { MissionMap } from '@/components/dashboard/mission-map';
 import { EventFeed } from '@/components/dashboard/event-feed';
-import { OperationsPanel, type RoutePlanPayload } from '@/components/dashboard/operations-panel';
+import { OperationsPanel, type RoutePlanPayload, type CoordinateSelectionRequest } from '@/components/dashboard/operations-panel';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { queryKeys } from '@/lib/query-keys';
 import { getEvents } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 import type { SarEvent } from '@/types/sar';
 
 export function DashboardPage() {
@@ -25,6 +26,7 @@ export function DashboardPage() {
   });
 
   const [routeOverlay, setRouteOverlay] = useState<RoutePlanPayload | null>(null);
+  const [coordinateRequest, setCoordinateRequest] = useState<CoordinateSelectionRequest | null>(null);
   const events = useMemo(() => data?.events ?? [], [data?.events]);
 
   useEffect(() => {
@@ -41,14 +43,32 @@ export function DashboardPage() {
   }, [events, selectedEventId]);
 
   const metrics = useMemo(() => buildMetrics(events), [events]);
+  const status = useMemo(() => buildStatus(events, {
+    hasError: !!error,
+    isFetching,
+    updatedAt: dataUpdatedAt,
+  }), [events, error, isFetching, dataUpdatedAt]);
   const selectedEvent = events.find((event) => event.eventId === selectedEventId) ?? null;
+
+  const handleCoordinatePicked = useCallback(
+    (coords: { lat: number; lon: number }) => {
+      coordinateRequest?.onSelect(coords);
+      setCoordinateRequest(null);
+    },
+    [coordinateRequest],
+  );
 
   return (
     <div className="space-y-8">
-      <HeroSection metrics={metrics} hasSelection={!!selectedEvent} />
+      <HeroSection metrics={metrics} hasSelection={!!selectedEvent} status={status} />
       <div className="grid gap-6 xl:grid-cols-[minmax(320px,360px)_1fr] 2xl:grid-cols-[380px_1fr]">
         <div className="flex flex-col gap-6" id="mission-control">
-          <OperationsPanel onEventCreated={setSelectedEventId} onRoutePlanned={setRouteOverlay} />
+          <OperationsPanel
+            onEventCreated={setSelectedEventId}
+            onRoutePlanned={setRouteOverlay}
+            onCoordinateSelectionRequest={setCoordinateRequest}
+            activeCoordinateSelection={coordinateRequest?.id ?? null}
+          />
         </div>
         <div className="flex flex-col gap-6">
           <MissionMap
@@ -56,6 +76,8 @@ export function DashboardPage() {
             selectedEventId={selectedEventId}
             onSelect={setSelectedEventId}
             routePlan={routeOverlay}
+            coordinateRequest={coordinateRequest}
+            onCoordinatePick={handleCoordinatePicked}
           />
           <EventFeed
             events={events}
@@ -78,6 +100,14 @@ interface MetricCard {
   value: string;
   description: string;
   icon: React.ReactNode;
+}
+
+interface HeroStatus {
+  apiHealthy: boolean;
+  isRefreshing: boolean;
+  lastSynced?: number;
+  classified: number;
+  pending: number;
 }
 
 function buildMetrics(events: SarEvent[]): MetricCard[] {
@@ -117,9 +147,10 @@ function buildMetrics(events: SarEvent[]): MetricCard[] {
 interface HeroSectionProps {
   metrics: MetricCard[];
   hasSelection: boolean;
+  status: HeroStatus;
 }
 
-function HeroSection({ metrics, hasSelection }: HeroSectionProps) {
+function HeroSection({ metrics, hasSelection, status }: HeroSectionProps) {
   return (
     <div className="relative overflow-hidden rounded-3xl border bg-gradient-to-br from-primary/10 via-primary/5 to-background">
       <div className="absolute inset-y-0 right-0 hidden translate-x-24 skew-x-[35deg] bg-primary/10 blur-3xl md:block" />
@@ -140,6 +171,7 @@ function HeroSection({ metrics, hasSelection }: HeroSectionProps) {
             </Button>
             <ThemeToggle />
           </div>
+          <StatusStrip status={status} />
         </div>
         <Separator orientation="vertical" className="hidden h-40 lg:block" />
         <div className="grid w-full gap-4 sm:grid-cols-2 lg:w-[420px]">
@@ -172,4 +204,41 @@ function MetricTile({ metric }: { metric: MetricCard }) {
       </CardContent>
     </Card>
   );
+}
+
+function StatusStrip({ status }: { status: HeroStatus }) {
+  const syncLabel = status.lastSynced ? new Date(status.lastSynced).toLocaleTimeString() : '—';
+  return (
+    <div className="flex flex-wrap items-center gap-2 pt-3 text-xs text-muted-foreground">
+      <span
+        className={cn(
+          'inline-flex items-center gap-2 rounded-full px-3 py-1 font-medium',
+          status.apiHealthy ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-destructive/10 text-destructive',
+        )}
+      >
+        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: status.apiHealthy ? '#34d399' : '#ef4444' }} />
+        {status.apiHealthy ? 'API healthy' : 'API issue'}
+        {status.isRefreshing ? ' · refreshing…' : null}
+      </span>
+      <span className="rounded-full bg-muted/40 px-3 py-1">Last sync {syncLabel}</span>
+      <span className="rounded-full bg-muted/40 px-3 py-1">
+        {status.classified} classified · {status.pending} pending
+      </span>
+    </div>
+  );
+}
+
+function buildStatus(
+  events: SarEvent[],
+  context: { hasError: boolean; isFetching: boolean; updatedAt?: number },
+): HeroStatus {
+  const classified = events.filter((event) => Boolean(event.rationale && event.rationale.trim().length > 0)).length;
+  const pending = Math.max(events.length - classified, 0);
+  return {
+    apiHealthy: !context.hasError,
+    isRefreshing: context.isFetching,
+    lastSynced: context.updatedAt,
+    classified,
+    pending,
+  };
 }

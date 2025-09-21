@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
-import { ArrowLeft, Clock, MapPin, ShieldHalf, Waves } from 'lucide-react';
+import { ArrowLeft, Clock, MapPin, ShieldHalf, Waves, Sparkles } from 'lucide-react';
 
 import { EventDetailMap } from '@/components/event-detail/event-map';
 import { Badge } from '@/components/ui/badge';
@@ -139,25 +139,54 @@ function RationaleCard({ explanation }: { explanation: ExplainEventResponse | nu
       <CardHeader>
         <CardTitle className="text-xl font-semibold">Nova Lite assessment</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="rounded-2xl border bg-muted/60 p-4 text-sm leading-relaxed text-muted-foreground">
-          {explanation.rationale}
-        </p>
-        {explanation.cues && explanation.cues.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {explanation.cues.map((cue) => (
-              <Badge key={cue} variant="secondary" className="rounded-full px-3 py-1 text-xs">
-                {cue}
-              </Badge>
-            ))}
+      <CardContent>
+        <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+          <div className="flex-1 space-y-4">
+            <p className="rounded-2xl border bg-muted/60 p-4 text-sm leading-relaxed text-muted-foreground">
+              {explanation.rationale}
+            </p>
+            {explanation.cues && explanation.cues.length > 0 ? (
+              <div>
+                <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <Sparkles className="h-3.5 w-3.5 text-primary" /> Actionable signals
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {explanation.cues.map((cue) => (
+                    <Badge key={cue} variant="secondary" className="rounded-full px-3 py-1 text-xs">
+                      {cue}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
-        ) : null}
-        <div className="flex items-center justify-between rounded-2xl border bg-card p-4 text-sm">
-          <span className="text-muted-foreground">Trust score</span>
-          <span className="text-2xl font-semibold text-primary">{explanation.trustScore ?? 'N/A'}</span>
+          <TrustGauge value={explanation.trustScore} />
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function TrustGauge({ value }: { value?: number }) {
+  const safeValue = typeof value === 'number' ? Math.min(Math.max(value, 0), 100) : null;
+  const angle = safeValue !== null ? safeValue * 3.6 : 0;
+  const gradient = safeValue !== null
+    ? `conic-gradient(var(--primary) 0deg ${angle}deg, var(--muted) ${angle}deg 360deg)`
+    : 'conic-gradient(var(--muted) 0deg 360deg)';
+
+  return (
+    <div className="flex flex-col items-center gap-3 md:pt-2">
+      <div className="relative h-28 w-28">
+        <div className="absolute inset-0 rounded-full" style={{ background: gradient, opacity: 0.95 }} />
+        <div className="absolute inset-2 flex flex-col items-center justify-center rounded-full bg-background text-foreground shadow-inner">
+          <span className="text-3xl font-semibold">
+            {safeValue !== null ? Math.round(safeValue) : '—'}
+          </span>
+          <span className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground">Trust</span>
+        </div>
+      </div>
+      <p className="max-w-[8rem] text-center text-xs text-muted-foreground">AI confidence in this report</p>
+    </div>
   );
 }
 

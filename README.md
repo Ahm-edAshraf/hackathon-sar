@@ -7,11 +7,13 @@ Bun-powered MCP middleware + a polished Next.js dashboard that surfaces live sea
 - Bun 1.2+
 - Node 18+
 - Environment variable `SAR_API_BASE` pointing to your API Gateway stage (example: `https://YOUR-API-ID.execute-api.REGION.amazonaws.com/prod`).
+- Google Maps access for the alternate route workflow — set `GOOGLE_MAPS_API_KEY` to a Maps Routes-enabled key.
 
 Create a `.env.local` with:
 
 ```env
 SAR_API_BASE=https://YOUR-API-ID.execute-api.REGION.amazonaws.com/prod
+GOOGLE_MAPS_API_KEY=YOUR-GOOGLE-MAPS-KEY
 ```
 
 ## Scripts
@@ -44,7 +46,12 @@ API_BASE=$SAR_API_BASE bun run mcp/server.mjs \
 ## Frontend Overview
 
 - **Dashboard:** ingest events, fire geofence alerts, request alternate routes, and visualise incidents on an interactive Leaflet map with live metrics.
+- **Live status strip:** immediate readouts for API health, last sync, and classification coverage surfaced in the hero band.
+- **Mission map controls:** severity legend, overlay toggles, and map-assisted coordinate picking that pipe selections straight into form fields.
+- **Operational feed filters:** quick severity/status filters to triage large incident drops.
+- **Activity timeline:** audit of recent MCP-triggered automations (ingest, routing, geofence, replay) with success/error signals.
 - **Event Detail:** dedicated route (`/events/[eventId]`) showing Nova Lite rationale, trust score, cue tags, trace timeline, and a map spotlight.
+- **AI verdict visuals:** rationale card now couples actionable signals with a radial trust gauge for at-a-glance model confidence.
 - **Data Access:** Next.js API routes proxy all calls to the AWS backend using `SAR_API_BASE`, ensuring CORS-safe access for the client.
 - **UX Enhancements:** theme toggle, gradient hero, toast feedback, responsive cards, and React Query for smart caching + refetching.
 

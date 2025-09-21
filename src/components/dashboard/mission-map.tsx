@@ -5,24 +5,38 @@ import type { LatLngTuple, Map as LeafletMap } from 'leaflet';
 import { Navigation, Pin } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { decodeGooglePolyline } from '@/lib/polyline';
 import type { SarEvent } from '@/types/sar';
 import { formatCoordinate, formatEventTimestamp, getSeverityMeta } from '@/lib/event-utils';
-import type { RoutePlanPayload } from './operations-panel';
+import type { RoutePlanPayload, CoordinateSelectionRequest } from './operations-panel';
 
 interface MissionMapProps {
   events?: SarEvent[];
   selectedEventId?: string | null;
   onSelect: (eventId: string) => void;
   routePlan?: RoutePlanPayload | null;
+  coordinateRequest?: CoordinateSelectionRequest | null;
+  onCoordinatePick?: (coords: { lat: number; lon: number }) => void;
 }
 
 const DEFAULT_CENTER: LatLngTuple = [3.089, 101.586];
 
-export function MissionMap({ events = [], selectedEventId, onSelect, routePlan }: MissionMapProps) {
+export function MissionMap({
+  events = [],
+  selectedEventId,
+  onSelect,
+  routePlan,
+  coordinateRequest,
+  onCoordinatePick,
+}: MissionMapProps) {
   const mapRef = useRef<LeafletMap | null>(null);
   const [leaflet, setLeaflet] = useState<null | typeof import('react-leaflet')>(null);
+  const [displayMode, setDisplayMode] = useState<'severity' | 'simple'>('severity');
+  const [showRouteOverlay, setShowRouteOverlay] = useState(true);
+  const [legendOpen, setLegendOpen] = useState(false);
+  const [selectionPreview, setSelectionPreview] = useState<LatLngTuple | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -76,29 +90,28 @@ export function MissionMap({ events = [], selectedEventId, onSelect, routePlan }
     if (!mapRef.current) {
       return;
     }
-    const allPoints: LatLngTuple[] = [
-      ...markers.map((marker) => marker.position),
-      ...routePath,
-      ...routeAnchors,
-    ];
-    if (!allPoints.length) {
+    let boundsPoints: LatLngTuple[] = [];
+    if (routePath.length >= 2) {
+      boundsPoints = routePath;
+    } else if (markers.length) {
+      boundsPoints = markers.map((marker) => marker.position);
+    }
+
+    if (!boundsPoints.length) {
       return;
     }
-    const latitudes = allPoints.map((point) => point[0]);
-    const longitudes = allPoints.map((point) => point[1]);
-    const minLat = Math.min(...latitudes);
-    const maxLat = Math.max(...latitudes);
-    const minLon = Math.min(...longitudes);
-    const maxLon = Math.max(...longitudes);
 
-    mapRef.current.fitBounds(
-      [
-        [minLat, minLon],
-        [maxLat, maxLon],
-      ],
-      { maxZoom: 13, padding: [40, 40] },
-    );
-  }, [markers, routePath, routeAnchors]);
+    mapRef.current.fitBounds(boundsPoints, {
+      maxZoom: routePath.length >= 2 ? 12 : 13,
+      padding: [48, 48],
+    });
+  }, [markers, routePath]);
+
+  useEffect(() => {
+    if (coordinateRequest) {
+      setSelectionPreview(null);
+    }
+  }, [coordinateRequest]);
 
   const selectedMarker = markers.find((marker) => marker.event.eventId === selectedEventId);
   const defaultCenter = useMemo<LatLngTuple>(() => {
@@ -137,7 +150,18 @@ export function MissionMap({ events = [], selectedEventId, onSelect, routePlan }
     );
   }
 
-  const { MapContainer, TileLayer, CircleMarker, Popup, Polyline } = leaflet;
+  const { MapContainer, TileLayer, CircleMarker, Popup, Polyline, useMapEvents } = leaflet;
+
+  const ClickHandler = () => {
+    useMapEvents({
+      click(event) {
+        const coords = { lat: event.latlng.lat, lon: event.latlng.lng };
+        setSelectionPreview([coords.lat, coords.lon]);
+        onCoordinatePick?.(coords);
+      },
+    });
+    return null;
+  };
 
   return (
     <Card className="overflow-hidden">
@@ -159,19 +183,67 @@ export function MissionMap({ events = [], selectedEventId, onSelect, routePlan }
         )}
       </CardHeader>
       <CardContent className="p-0">
-        <div className="h-[28rem]">
+        <div className="relative h-[28rem]">
+          <div className="absolute right-4 top-4 z-[1000] flex flex-col items-end gap-2">
+            <div className="flex flex-wrap gap-2 rounded-full bg-background/80 px-2 py-1 shadow-sm">
+              <Button
+                size="sm"
+                variant="ghost"
+                className={cn(
+                  'h-8 rounded-full px-3 text-[11px] font-medium text-muted-foreground hover:bg-primary/10 hover:text-primary',
+                  displayMode === 'severity' && 'bg-primary/10 text-primary shadow-sm',
+                )}
+                onClick={() => setDisplayMode(displayMode === 'severity' ? 'simple' : 'severity')}
+              >
+                {displayMode === 'severity' ? 'Severity view' : 'Simple view'}
+              </Button>
+              {routePlan ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className={cn(
+                    'h-8 rounded-full px-3 text-[11px] font-medium text-muted-foreground hover:bg-primary/10 hover:text-primary',
+                    showRouteOverlay && 'bg-primary/10 text-primary shadow-sm',
+                  )}
+                  onClick={() => setShowRouteOverlay((value) => !value)}
+                >
+                  {showRouteOverlay ? 'Route on' : 'Route off'}
+                </Button>
+              ) : null}
+              <Button
+                size="sm"
+                variant="ghost"
+                className={cn(
+                  'h-8 rounded-full px-3 text-[11px] font-medium text-muted-foreground hover:bg-primary/10 hover:text-primary',
+                  legendOpen && 'bg-primary/10 text-primary shadow-sm',
+                )}
+                onClick={() => setLegendOpen((value) => !value)}
+              >
+                {legendOpen ? 'Hide legend' : 'Legend'}
+              </Button>
+            </div>
+            {legendOpen ? <SeverityLegend align="right" /> : null}
+          </div>
+          {coordinateRequest ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-4 z-[1000] mx-auto w-fit rounded-full bg-background/80 px-3 py-1.5 text-[11px] font-medium text-foreground shadow-sm">
+              Tap map to set {coordinateRequest.label}
+            </div>
+          ) : null}
           <MapContainer
             center={defaultCenter}
             zoom={12}
             scrollWheelZoom
-            className="h-full w-full"
+            className={cn('h-full w-full', coordinateRequest ? 'cursor-crosshair' : '')}
             ref={(instance) => {
               mapRef.current = instance ?? null;
             }}
           >
+            {coordinateRequest ? (
+              <ClickHandler />
+            ) : null}
             <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-            {routePlan && routePath.length >= 2 ? (
+            {routePlan && routePath.length >= 2 && showRouteOverlay ? (
               <>
                 <Polyline
                   positions={routePath}
@@ -188,19 +260,28 @@ export function MissionMap({ events = [], selectedEventId, onSelect, routePlan }
               </>
             ) : null}
 
+            {selectionPreview ? (
+              <CircleMarker
+                center={selectionPreview}
+                radius={8}
+                pathOptions={{ color: '#0ea5e9', fillOpacity: 0.6, weight: 2 }}
+              />
+            ) : null}
+
             {markers.length === 0
               ? null
               : markers.map(({ position, event }) => {
                   const severity = getSeverityMeta(event.severity);
                   const isSelected = event.eventId === selectedEventId;
+                  const color = displayMode === 'severity' ? severityToColor(severity.label) : '#2563eb';
                   return (
                     <CircleMarker
                       key={event.eventId}
                       center={position}
                       radius={isSelected ? 12 : 8}
                       pathOptions={{
-                        color: isSelected ? '#2563eb' : '#f97316',
-                        fillOpacity: 0.7,
+                        color,
+                        fillOpacity: isSelected ? 0.85 : 0.65,
                         weight: isSelected ? 3 : 2,
                       }}
                       eventHandlers={{
@@ -229,4 +310,47 @@ export function MissionMap({ events = [], selectedEventId, onSelect, routePlan }
       </CardContent>
     </Card>
   );
+}
+
+function SeverityLegend({ align = 'left' }: { align?: 'left' | 'right' }) {
+  const entries = [
+    { label: 'Critical', color: '#ef4444' },
+    { label: 'High', color: '#f97316' },
+    { label: 'Elevated', color: '#0ea5e9' },
+    { label: 'Low', color: '#22c55e' },
+    { label: 'Unknown', color: '#6b7280' },
+  ];
+  return (
+    <div
+      className={cn(
+        'rounded-2xl border bg-background/90 p-3 shadow-sm',
+        align === 'right' ? 'text-right' : 'text-left',
+      )}
+    >
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Severity key</p>
+      <ul className="mt-2 space-y-1 text-xs">
+        {entries.map((entry) => (
+          <li key={entry.label} className={cn('flex items-center gap-2', align === 'right' ? 'justify-end' : 'justify-start')}>
+            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: entry.color }} />
+            <span>{entry.label}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function severityToColor(label: string): string {
+  switch (label) {
+    case 'Critical':
+      return '#ef4444';
+    case 'High':
+      return '#f97316';
+    case 'Elevated':
+      return '#0ea5e9';
+    case 'Low':
+      return '#22c55e';
+    default:
+      return '#6b7280';
+  }
 }

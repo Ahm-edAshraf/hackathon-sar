@@ -24,11 +24,10 @@ export class ApiError extends Error {
 }
 
 const PUBLIC_API_BASE = process.env.NEXT_PUBLIC_SAR_API_BASE?.replace(/\/$/, '') ?? null;
-const IS_PRODUCTION_BUILD = process.env.NODE_ENV === 'production';
 
 function buildUrl(path: string) {
   const trimmed = path.startsWith('/') ? path.slice(1) : path;
-  if (PUBLIC_API_BASE && IS_PRODUCTION_BUILD) {
+  if (PUBLIC_API_BASE) {
     return `${PUBLIC_API_BASE}/${trimmed}`;
   }
   return `/api/${trimmed}`;

@@ -14,6 +14,7 @@ Create a `.env.local` with:
 ```env
 SAR_API_BASE=https://YOUR-API-ID.execute-api.REGION.amazonaws.com/prod
 GOOGLE_MAPS_API_KEY=YOUR-GOOGLE-MAPS-KEY
+NEXT_PUBLIC_SAR_API_BASE=https://YOUR-API-ID.execute-api.REGION.amazonaws.com/prod # set only in hosted envs
 ```
 
 ## Scripts

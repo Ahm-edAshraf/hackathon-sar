@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SAR Mission Console
 
-## Getting Started
+Bun-powered MCP middleware + a polished Next.js dashboard that surfaces live search-and-rescue events from the AWS backend.
 
-First, run the development server:
+## Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Bun 1.2+
+- Node 18+
+- Environment variable `SAR_API_BASE` pointing to your API Gateway stage (example: `https://YOUR-API-ID.execute-api.REGION.amazonaws.com/prod`).
+
+Create a `.env.local` with:
+
+```env
+SAR_API_BASE=https://YOUR-API-ID.execute-api.REGION.amazonaws.com/prod
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Scripts
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Command | Description |
+| --- | --- |
+| `bun run dev` | Start the Next.js dashboard (App Router + Tailwind + shadcn/ui). |
+| `bun run build` | Production build using Turbopack. |
+| `bun run lint` | Lint the project. |
+| `bun run mcp` | Launch the Bun-based MCP middleware over stdio. |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## MCP Middleware
 
-## Learn More
+Located in `mcp/server.mjs`, the middleware exposes the SAR backend via Model Context Protocol tools:
 
-To learn more about Next.js, take a look at the following resources:
+- `ingest_event`
+- `list_events`
+- `explain_event`
+- `alt_route`
+- `set_geofence_alert`
+- `simulate_replay`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Run it against the live backend:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+API_BASE=$SAR_API_BASE bun run mcp/server.mjs \
+  <<<'{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
 
-## Deploy on Vercel
+## Frontend Overview
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Dashboard:** ingest events, fire geofence alerts, request alternate routes, and visualise incidents on an interactive Leaflet map with live metrics.
+- **Event Detail:** dedicated route (`/events/[eventId]`) showing Nova Lite rationale, trust score, cue tags, trace timeline, and a map spotlight.
+- **Data Access:** Next.js API routes proxy all calls to the AWS backend using `SAR_API_BASE`, ensuring CORS-safe access for the client.
+- **UX Enhancements:** theme toggle, gradient hero, toast feedback, responsive cards, and React Query for smart caching + refetching.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Testing the Flow
+
+1. Start the dashboard: `bun run dev`.
+2. Confirm the event feed populates (use "Demo replay" if you need seed data).
+3. Submit a new incident via the Report tab and watch it appear in the feed + mission map.
+4. Open any event to review the Nova Lite explanation at `/events/<id>`.
+5. Keep the MCP server handy for CLI-driven smoke tests.
+
+## Tech Stack
+
+- Next.js 15 App Router with Bun runtime
+- Tailwind CSS + shadcn/ui + lucide icons
+- React Query (TanStack) + Zod + React Hook Form
+- Leaflet / React Leaflet for mapping
+- Bun MCP SDK for tool exposure
+
+Happy coordinating!

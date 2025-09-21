@@ -1,0 +1,22 @@
+curl -X POST "https://YOUR-API-ID.execute-api.REGION.amazonaws.com/prod/social/x/pull" \
+  -H 'content-type: application/json' \
+  -d '{"dryRun":true,"maxResults":10,"sinceMinutes":30,"query":"(banjir OR flood) (lang:ms OR lang:en) place_country:MY"}'
+
+curl -s -G 'https://api.twitter.com/2/tweets/search/recent' \
+  --data-urlencode 'query=(banjir OR flood) (lang:ms OR lang:en) place_country:MY' \
+  --data-urlencode 'max_results=10' \
+  --data-urlencode 'tweet.fields=id,text,created_at,lang,geo,public_metrics,source,author_id,conversation_id' \
+  --data-urlencode 'user.fields=id,username,name,verified,public_metrics' \
+  --data-urlencode 'place.fields=id,full_name,country,country_code,geo,name,place_type' \
+  --data-urlencode 'expansions=author_id,geo.place_id,referenced_tweets.id' \
+  -H "authorization: Bearer AAAAAAAAAAAAAAAAAAAAAOcy4QEAAAAA3n6grnvrODW9mScoKwLBEAgxRWY%3D7NGPrbi8QKBSVTtrbNH9d5eSmj8SHThqeJHdK9Tw2BwSdkmxmB"
+
+
+  curl -s -X POST "https://YOUR-API-ID.execute-api.REGION.amazonaws.com/prod/social/x/pull" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "from:TwitterDev", "maxResults": 10, "dryRun": true}'
+
+
+  curl -s -X POST "https://YOUR-API-ID.execute-api.REGION.amazonaws.com/prod/social/x/pull" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "openai", "maxResults": 10}'

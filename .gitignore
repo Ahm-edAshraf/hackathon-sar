@@ -13,6 +13,7 @@
 # Bun
 bun-debug.log*
 bun-error.log*
+.venv/
 
 # Testing
 /coverage
